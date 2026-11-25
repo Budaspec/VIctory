@@ -1,5 +1,27 @@
 A fork of the DexNom community victory fork by Budaspec.
 
+## At a glance
+
+| | |
+|---|---|
+| **Platform** | AMD Radeon RX 9060 XT 16 GB (RDNA 4), driver 32.0.32015.7029, Ryzen 5 9600X, 32 GB RAM, Windows 11 Pro |
+| **Milestone** | Playable: in the world, character control, HUD working |
+| **Story progress** | Early: in the opening; the low frame rate limits progress |
+| **Rendering** | The world draws, but many textures and objects are black or missing |
+| **Performance** | About 3 to 6 fps in the world; some frames take 1 to 2 seconds |
+| **Stability** | Rarely crashes: recent test runs of 8 to 30 minutes with no crash or GPU fault |
+| **Evidence** | Video coming soon |
+
+**What works**
+- Builds from source with `Setup.cmd`, based on DexNom Runtime (Marvisak's VIctory); GPL-3.0.
+- Runs on RDNA 4 (RX 9060 XT): fixes for AMD shader-compiler crashes on this driver (resource-size queries, a merging optimizer pass) and for a GPU page fault from reading texture descriptors as constant buffers.
+- Gamepad presses register even at low frame rates (presses between frames are latched).
+
+**What's blocking**
+- Low, uneven frame rate: game threads wait on runtime locks (descriptor mirror, submission, texture uploads). That's being worked on now.
+- Many textures and objects are black or missing.
+- Tested on one PC only.
+
 ## Status
 
 **Nearly crash-free.** On an AMD Radeon RX 9060 XT (driver 32.0.32015.7029) the game loads into the world and ran for over 30 minutes in the latest test with no GPU fault. Correction to the earlier note on this page: that test did crash 6 times in its first 6 minutes. Three mesh and pixel pipelines crashed AMD's shader compiler (a different spot in it, `amdxc64.dll+0xe8d9e5`), twice each. The launcher restarted the game each time, then skipped those 3 pipelines, and the next 24 minutes ran clean. Every compute shader that crashed the compiler before now compiles; the 3 mesh/pixel pipelines are being investigated.
