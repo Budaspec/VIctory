@@ -1895,9 +1895,13 @@ impl State {
         // records the frame, and making and staging 192 MB of textures took
         // 1.6-2.2 s of each of the world's first twenty frames (run 20).
         // The rest waits for the next frames, as it does past the bytes.
+        // 24 ms by default (it was 250): on the RX 9060 XT this pass took
+        // 150-250 ms of most slow world frames, on one recording thread,
+        // with the frame waiting for it; textures now arrive over more
+        // frames instead (2026-11-25, frame pacing before completeness).
         static SPAN_MS: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
         let span = std::time::Duration::from_millis(*SPAN_MS.get_or_init(|| {
-            std::env::var("VICTORY_TEXTURE_STAGE_MS").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(250)
+            std::env::var("VICTORY_TEXTURE_STAGE_MS").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(24)
         }));
         // A long queue (the world's first minutes: over 20,000 slots, which
         // at the usual pace took three and a half minutes with the materials
@@ -1907,7 +1911,8 @@ impl State {
         // usual budget once 1,024 were due. `VICTORY_TEXTURE_CATCHUP=0`
         // keeps the plain budget.
         const PER_FRAME_CATCHING_UP: u64 = 512 << 20;
-        const SPAN_CATCHING_UP: std::time::Duration = std::time::Duration::from_millis(1500);
+        // 100 ms (it was 1.5 s, frames of 1-2 s while it lasted).
+        const SPAN_CATCHING_UP: std::time::Duration = std::time::Duration::from_millis(100);
         const LONG: u64 = 2_000;
         static CATCHUP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         let catchup = *CATCHUP.get_or_init(|| std::env::var_os("VICTORY_TEXTURE_CATCHUP").is_none_or(|v| v != "0"));
