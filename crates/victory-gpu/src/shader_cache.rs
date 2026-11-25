@@ -86,6 +86,8 @@ fn build() -> &'static [u8; 32] {
             "VICTORY_STRICT_JOINS",
             "VICTORY_MESH_OUTPUT_STRICT",
             "VICTORY_REUSE_SKIP",
+            "VICTORY_SIZE_NONUNIFORM",
+            "VICTORY_DROP_OPS",
         ] {
             hash.update(name.as_bytes());
             hash.update(b"=");

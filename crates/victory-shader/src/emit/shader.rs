@@ -586,8 +586,18 @@ impl Shader {
         // feature whose last use it removed must not be declared (the
         // validator compares the flags with what the code uses).
         let passes = super::shader_opt() & super::bitcode::opt::MODULE;
+        if let Ok(drop) = std::env::var("VICTORY_DROP_OPS") {
+            let names: Vec<String> = drop.split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect();
+            let n = self.m.drop_calls(&names);
+            eprintln!("VICTORY_DROP_OPS: {n} calls left out");
+        }
         if passes != 0 {
             self.m.optimise(passes);
+        }
+        if super::size_nonuniform() {
+            self.m.nonuniform_size_handles();
+        }
+        if passes != 0 {
             let used = self.m.usage();
             for (flag, used) in [
                 (flags::WAVE_OPS, used.wave_ops),

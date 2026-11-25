@@ -285,6 +285,117 @@ impl Module {
         }
     }
 
+    /// Marks the heap index of every handle a resource-size query reads as
+    /// non-uniform (`createHandleFromHeap`'s third argument): always exact,
+    /// and the host compiler takes its path for indices that may differ by
+    /// lane. Returns the handles marked.
+    pub(crate) fn nonuniform_size_handles(&mut self) -> usize {
+        let named = |m: &Module, f: u32, p: &str| m.funcs[f as usize].name.starts_with(p);
+        let mut roots = Vec::new();
+        for blk in &self.blocks {
+            for &i in &blk.body {
+                if let Op::Call(f, args) = &self.insts[i as usize].op
+                    && named(self, *f, "dx.op.getDimensions")
+                    && let Some(&h) = args.get(1)
+                {
+                    roots.push(h);
+                }
+            }
+        }
+        let yes = self.bool(true);
+        let mut marked = 0;
+        let mut seen = std::collections::HashSet::new();
+        while let Some(v) = roots.pop() {
+            let V::Inst(i) = v else { continue };
+            if !seen.insert(i) {
+                continue;
+            }
+            let Op::Call(f, args) = &self.insts[i as usize].op else { continue };
+            let f = *f;
+            if named(self, f, "dx.op.annotateHandle") {
+                if let Some(&h) = args.get(1) {
+                    roots.push(h);
+                }
+            } else if named(self, f, "dx.op.createHandleFromHeap")
+                && let Op::Call(_, args) = &mut self.insts[i as usize].op
+                && args.len() == 4
+            {
+                args[3] = yes;
+                marked += 1;
+            }
+        }
+        marked
+    }
+
+    /// Diagnostics (`VICTORY_DROP_OPS`): leaves out every call of a `dx.op`
+    /// whose name starts with one of `names`; what read its result reads
+    /// undef. For telling which operation a host compiler fails on (the
+    /// program no longer computes the same). Returns the calls left out.
+    pub(crate) fn drop_calls(&mut self, names: &[String]) -> usize {
+        // `name@k`: only calls whose first handle operand was annotated as
+        // resource kind `k` (2 a 2D texture, 11 a raw buffer, 13 a constant
+        // buffer).
+        let kinds: Vec<Option<i64>> = names
+            .iter()
+            .map(|n| n.split_once('@').and_then(|(_, k)| k.parse().ok()))
+            .collect();
+        let kind_of = |m: &Module, args: &[V]| -> Option<i64> {
+            args.iter().find_map(|&a| {
+                let V::Inst(h) = a else { return None };
+                let Op::Call(af, aargs) = &m.insts[h as usize].op else { return None };
+                if !m.funcs[*af as usize].name.starts_with("dx.op.annotateHandle") {
+                    return None;
+                }
+                let V::Const(p) = *aargs.get(2)? else { return None };
+                let Const::Aggregate(parts) = &m.consts[p as usize].1 else { return None };
+                match m.consts[*parts.first()? as usize].1 {
+                    Const::Int(k) => Some(k),
+                    _ => None,
+                }
+            })
+        };
+        let wanted = |m: &Module, f: u32, args: &[V]| -> bool {
+            let name = m.funcs[f as usize].name.strip_prefix("dx.op.").unwrap_or("");
+            names.iter().zip(&kinds).any(|(n, k)| {
+                let base = n.split('@').next().unwrap_or("");
+                name.starts_with(base) && k.is_none_or(|k| kind_of(m, args) == Some(k))
+            })
+        };
+        let mut repl: HashMap<u32, V> = HashMap::new();
+        for b in 0..self.blocks.len() {
+            let body = std::mem::take(&mut self.blocks[b].body);
+            let mut kept = Vec::with_capacity(body.len());
+            for i in body {
+                if let Op::Call(f, args) = &self.insts[i as usize].op
+                    && wanted(self, *f, args)
+                {
+                    let ty = self.insts[i as usize].ty;
+                    let u = self.undef(ty);
+                    repl.insert(i, u);
+                } else {
+                    kept.push(i);
+                }
+            }
+            self.blocks[b].body = kept;
+        }
+        let swap = |v: V| match v {
+            V::Inst(i) => repl.get(&i).copied().unwrap_or(v),
+            _ => v,
+        };
+        for blk in &mut self.blocks {
+            if let Some(Term::CondBr(c, t, f)) = blk.term {
+                blk.term = Some(Term::CondBr(swap(c), t, f));
+            }
+        }
+        let (blocks, insts) = (&self.blocks, &mut self.insts);
+        for blk in blocks {
+            for &i in blk.phis.iter().chain(&blk.body) {
+                map_operands(&mut insts[i as usize].op, swap);
+            }
+        }
+        repl.len()
+    }
+
     /// Per function: what a call of it does.
     pub(super) fn effects(&self) -> Vec<Effect> {
         self.funcs.iter().map(effect).collect()

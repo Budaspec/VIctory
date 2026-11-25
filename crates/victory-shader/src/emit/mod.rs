@@ -255,6 +255,18 @@ pub fn shader_opt() -> u32 {
     shader_opt_setting() & !PASSES_OFF.with(std::cell::Cell::get)
 }
 
+/// Whether the heap handles a resource-size query reads are marked
+/// non-uniform (`bitcode::opt` `nonuniform_size_handles`). AMD's compiler
+/// (`amdxc64.dll` 32.0.32015.7029, RX 9060 XT) read through null compiling
+/// some of the title's compute programs with such queries (f16876929fa64f9f,
+/// a567b9ef845fb680; leaving the queries out avoided it too); marked, they
+/// compile. Exact. On unless `VICTORY_SIZE_NONUNIFORM=0`; part of the
+/// translation, so the shader cache keys on it.
+pub fn size_nonuniform() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("VICTORY_SIZE_NONUNIFORM").is_none_or(|v| v != "0"))
+}
+
 /// [`shader_opt`] as set for the run, whatever this thread leaves out
 /// (for cache keys).
 pub fn shader_opt_setting() -> u32 {
