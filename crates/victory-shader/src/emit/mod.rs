@@ -255,7 +255,7 @@ pub fn shader_opt() -> u32 {
     shader_opt_setting() & !PASSES_OFF.with(std::cell::Cell::get)
 }
 
-/// Whether the heap handles a resource-size query reads are marked
+/// Whether, in compute programs, the heap handles a resource-size query reads are marked
 /// non-uniform (`bitcode::opt` `nonuniform_size_handles`). AMD's compiler
 /// (`amdxc64.dll` 32.0.32015.7029, RX 9060 XT) read through null compiling
 /// some of the title's compute programs with such queries (f16876929fa64f9f,

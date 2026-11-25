@@ -594,7 +594,9 @@ impl Shader {
         if passes != 0 {
             self.m.optimise(passes);
         }
-        if super::size_nonuniform() {
+        // Compute programs only: marked in a pixel program (50db13ed40b2c635), the
+        // same driver crashed elsewhere (amdxc64.dll+0xe8d9e5) where unmarked it compiled.
+        if super::size_nonuniform() && self.threads.is_some() && self.mesh.is_none() {
             self.m.nonuniform_size_handles();
         }
         if passes != 0 {
