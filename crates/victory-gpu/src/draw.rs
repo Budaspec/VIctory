@@ -412,6 +412,9 @@ pub(crate) static HEAP_VIEWS_ELSEWHERE: AtomicU64 = AtomicU64::new(0);
 /// index ([`State::heap_buffers`]), and the microseconds they took.
 pub(crate) static HEAP_BUFFER_PASSES: AtomicU64 = AtomicU64::new(0);
 pub(crate) static HEAP_BUFFER_MICROS: AtomicU64 = AtomicU64::new(0);
+/// Of those microseconds: looking at slots, refreshing host copies, and
+/// textures picked by index.
+pub(crate) static HEAP_BUFFER_PARTS: [AtomicU64; 3] = [const { AtomicU64::new(0) }; 3];
 /// Textures brought up to date for shaders that pick them by index
 /// ([`State::heap_textures`]), the bytes of their memory, and the slots
 /// still waiting.
@@ -1533,14 +1536,23 @@ impl State {
         // at best); all of them every 16 passes, because a view of a
         // released resource goes stale without a write, and a slot written
         // before its memory had a host copy is only made then.
-        let crate::descriptor::host::BufferPass { passes, ranges, .. } = &mut *pass;
-        let changed = host.buffer_changes();
-        let slots = if *passes % 16 == 0 {
-            ranges.clear();
-            host.buffer_slots()
-        } else {
-            changed
-        };
+        // The full look is spread over 16 passes, a sixteenth of the slots
+        // each, rather than all of them every 16th pass: that pass took
+        // 0.1 s or more over 83,000 slots, a hitch every 16 frames on top of
+        // frames of 170-330 ms in the world (RX 9060 XT, 2026-11-25). Every
+        // slot is still looked at again at least every 16 passes.
+        let crate::descriptor::host::BufferPass { passes, ranges, cursor, .. } = &mut *pass;
+        let mut slots = host.buffer_changes();
+        let (_, end) = host.buffer_slots_in(0..0);
+        let step = end.div_ceil(16).max(1);
+        let from = if *cursor >= end { 0 } else { *cursor };
+        let to = from.saturating_add(step).min(end);
+        *cursor = if to >= end { 0 } else { to };
+        let (share, _) = host.buffer_slots_in(from..to);
+        ranges.retain(|i, _| !(from..to).contains(i));
+        slots.extend(share);
+        slots.sort_unstable();
+        slots.dedup();
         *passes += 1;
         // Whether the device was there before the pass: a view that removes
         // it is named below.
@@ -1581,6 +1593,7 @@ impl State {
             ranges.insert(index, (shadow, address, address + len));
         }
         let views = ranges.len() as u32;
+        let scanned = started.elapsed();
         // Per host copy, the span its picked views cover.
         let mut spans: std::collections::HashMap<usize, (std::sync::Arc<crate::shadow::Shadow>, u64, u64)> =
             std::collections::HashMap::new();
@@ -1624,7 +1637,12 @@ impl State {
             }
             shadow.refresh(list, *from, to - from);
         }
+        let refreshed = started.elapsed();
         self.heap_textures(list, heap, host);
+        let total = started.elapsed();
+        for (part, d) in [scanned, refreshed - scanned, total - refreshed].into_iter().enumerate() {
+            HEAP_BUFFER_PARTS[part].fetch_add(d.as_micros() as u64, Ordering::Relaxed);
+        }
         HEAP_BUFFER_PASSES.fetch_add(1, Ordering::Relaxed);
         HEAP_BUFFER_MICROS.fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
         static LOGGED: AtomicU64 = AtomicU64::new(0);

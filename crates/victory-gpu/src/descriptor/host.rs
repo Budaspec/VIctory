@@ -117,6 +117,8 @@ struct BufferSlots {
 pub(crate) struct BufferPass {
     pub(crate) frame: Option<u64>,
     pub(crate) passes: u64,
+    /// The first title slot of the next pass's share of the full rescan.
+    pub(crate) cursor: u32,
     pub(crate) ranges: std::collections::HashMap<u32, (std::sync::Arc<crate::shadow::Shadow>, u64, u64)>,
 }
 
@@ -1503,10 +1505,12 @@ impl HostHeap {
         }
     }
 
-    /// The title slots that hold buffer views.
-    pub(crate) fn buffer_slots(&self) -> Vec<u32> {
+    /// The title slots in `range` holding a buffer view, and one past the
+    /// highest such slot of the heap.
+    pub(crate) fn buffer_slots_in(&self, range: std::ops::Range<u32>) -> (Vec<u32>, u32) {
         let buffers = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
-        buffers.indices.iter().copied().collect()
+        let end = buffers.indices.last().map_or(0, |&i| i + 1);
+        (buffers.indices.range(range).copied().collect(), end)
     }
 
     /// The title slots whose buffer view was written, or went, since the
