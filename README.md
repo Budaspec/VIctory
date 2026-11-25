@@ -1,1 +1,1 @@
-A fork of a community victory fork by Budaspec
+A fork of the DexNom community victory fork by Budaspec.
