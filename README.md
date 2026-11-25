@@ -2,7 +2,7 @@ A fork of the DexNom community victory fork by Budaspec.
 
 ## Status
 
-**No crashes.** On an AMD Radeon RX 9060 XT (driver 32.0.32015.7029) the game loads into the world and ran for over 30 minutes in the latest test with no crash, no GPU fault and no restart. Every shader that has crashed AMD's compiler so far now compiles.
+**Nearly crash-free.** On an AMD Radeon RX 9060 XT (driver 32.0.32015.7029) the game loads into the world and ran for over 30 minutes in the latest test with no GPU fault. Correction to the earlier note on this page: that test did crash 6 times in its first 6 minutes. Three mesh and pixel pipelines crashed AMD's shader compiler (a different spot in it, `amdxc64.dll+0xe8d9e5`), twice each. The launcher restarted the game each time, then skipped those 3 pipelines, and the next 24 minutes ran clean. Every compute shader that crashed the compiler before now compiles; the 3 mesh/pixel pipelines are being investigated.
 
 **Current focus: frame rate and frame timing.** The world runs at about 3 to 6 fps, and some frames take 1 to 2 seconds, so it is not comfortably playable yet. The first goal is a frame time stable enough that the game is mostly playable, keeping the current stability. The end goal is 30 fps without major dips. Missing or black textures and objects are known and set aside for now.
 
@@ -13,7 +13,7 @@ A fork of the DexNom community victory fork by Budaspec.
 - **Shader-compiler crash fixed.** Compute shader `f16876929fa64f9f` crashed AMD's compiler with every optimizer setting. A new diagnostic (`VICTORY_DROP_OPS`) removes chosen operations from a shader, and it showed that resource-size queries on resources picked from the descriptor heap trigger the crash. The translator now marks the heap indices those queries use as non-uniform. That computes the same result and avoids the crash. All 15 shaders that ever crashed the compiler now compile. `VICTORY_SIZE_NONUNIFORM=0` turns this off.
 - **Dropped button presses.** The game finds a press by comparing the current controller reading with the previous one. The runtime made a new reading every 8 ms whenever a stick moved, so at 3 to 6 fps a tap usually started and ended between two of the game's reads. Readings since the game's last read are now merged into one, which includes every button pressed in between. Its previous reading is the one the game saw last. A test reproduces the old failure. `VICTORY_INPUT_LATCH=0` turns this off.
 - **Frame pacing.** Every 16th frame, the pass that prepares heap buffer views rescanned all ~83,000 slots, a hitch of 0.1 s or more. The rescan is now spread over 16 frames, and the slot part of the pass dropped to about 10 ms a frame. The frame-rate line now splits the pass into slots, memory copies and textures.
-- **Result.** Test run 4 ran for over 30 minutes and passed frame 6,000 with no crash and no GPU fault.
+- **Result.** Test run 4 ran for over 30 minutes and passed frame 6,000 with no GPU fault. It restarted 6 times in its first 6 minutes on 3 new mesh/pixel compiler crashes (see Status), then ran 24 minutes clean.
 
 ### 2026-11-25, GPU page fault fixed
 
