@@ -70,7 +70,7 @@ fn build() -> &'static [u8; 32] {
             // Which group barriers wait is part of the translation too.
             u32::from(victory_shader::emit::group_sync()),
             // And which clean-up passes ran over the translated code.
-            victory_shader::emit::shader_opt(),
+            victory_shader::emit::shader_opt_setting(),
         ] {
             hash.update(&n.to_le_bytes());
         }
@@ -85,6 +85,7 @@ fn build() -> &'static [u8; 32] {
             "VICTORY_F16_NEAREST",
             "VICTORY_STRICT_JOINS",
             "VICTORY_MESH_OUTPUT_STRICT",
+            "VICTORY_REUSE_SKIP",
         ] {
             hash.update(name.as_bytes());
             hash.update(b"=");
@@ -106,6 +107,20 @@ pub(crate) fn host_shader(container: &[u8]) -> Result<HostShader, String> {
         && &blake3::hash(container).to_hex()[..16] == victory_shader::emit::RAY_PROBE_HASH
     {
         return victory_shader::emit::translate_ray_probe(container).map_err(|e| e.to_string());
+    }
+    // A shader whose pipeline crashed the host driver in an earlier run is
+    // written without the merging clean-up pass (`pipeline::plain_shader`),
+    // cached apart from its usual translation.
+    if crate::pipeline::plain_shader(&blake3::hash(container).to_hex()[..16]) {
+        static PLAIN: OnceLock<[u8; 32]> = OnceLock::new();
+        let build = PLAIN.get_or_init(|| *blake3::hash(&[&build()[..], b"plain: no REUSE"].concat()).as_bytes());
+        let translate = |c: &[u8]| {
+            victory_shader::emit::translate_without(victory_shader::emit::REUSE_PASS, c).map_err(|e| e.to_string())
+        };
+        return match CACHE.get() {
+            Some(cache) => cached(cache, build, container, translate),
+            None => translate(container),
+        };
     }
     let translate = |c: &[u8]| victory_shader::emit::translate(c).map_err(|e| e.to_string());
     match CACHE.get() {

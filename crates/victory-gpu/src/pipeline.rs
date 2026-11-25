@@ -789,6 +789,13 @@ pub(crate) fn library_removal_note() -> String {
     library::removal_note()
 }
 
+/// Whether the shader with `hash` was in a pipeline that crashed the host
+/// driver before, and so is translated without the merging clean-up pass.
+#[cfg(windows)]
+pub(crate) fn plain_shader(hash: &str) -> bool {
+    library::plain_shader(hash)
+}
+
 /// Keeps compiled host pipelines, and the list of title pipelines to start
 /// early, in `dir` (a folder of the cache) across runs.
 #[cfg(windows)]

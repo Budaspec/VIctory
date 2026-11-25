@@ -156,6 +156,30 @@ fn with_ray_probe<T>(work: impl FnOnce() -> T) -> T {
     work()
 }
 
+std::thread_local! {
+    /// Clean-up passes left out of translations on this thread
+    /// ([`translate_without`]).
+    static PASSES_OFF: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Translates `container` with the clean-up passes in `passes` left out
+/// (`bitcode::opt` bits). For a program whose usual translation a host
+/// driver fails to compile: the same program, written more plainly.
+pub fn translate_without(passes: u32, container: &[u8]) -> Result<HostShader, ShaderError> {
+    struct Reset(u32);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            PASSES_OFF.set(self.0);
+        }
+    }
+    let _restore = Reset(PASSES_OFF.replace(passes));
+    translate(container)
+}
+
+/// The clean-up pass that merges a later instruction into an earlier one
+/// of the same value (`bitcode::opt::REUSE`).
+pub const REUSE_PASS: u32 = bitcode::opt::REUSE;
+
 /// The caller matches the diagnostic container hash before using this entry.
 pub fn translate_ray_probe(container: &[u8]) -> Result<HostShader, ShaderError> {
     if ray_probe_enabled() {
@@ -228,6 +252,12 @@ pub fn group_sync() -> u8 {
 /// Part of the translation: the shader cache keys on it (`victory-gpu`'s
 /// does).
 pub fn shader_opt() -> u32 {
+    shader_opt_setting() & !PASSES_OFF.with(std::cell::Cell::get)
+}
+
+/// [`shader_opt`] as set for the run, whatever this thread leaves out
+/// (for cache keys).
+pub fn shader_opt_setting() -> u32 {
     static PASSES: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
     *PASSES.get_or_init(|| parse_shader_opt(std::env::var("VICTORY_SHADER_OPT").ok().as_deref()))
 }

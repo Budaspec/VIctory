@@ -365,7 +365,7 @@ fn install_crash_guard() {
                 && super::library::note_crashed(&k)
             {
                 eprintln!(
-                    "VIctory: the host driver crashed making pipeline {}; it is left out from the next run ({})",
+                    "VIctory: the host driver crashed making pipeline {}; the next run translates it plainly, or leaves it out if it crashed before ({})",
                     k.as_str(),
                     super::library::CRASHED_FILE
                 );

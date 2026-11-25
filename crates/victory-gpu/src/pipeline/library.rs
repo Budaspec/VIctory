@@ -47,7 +47,7 @@
 //! 16,352 of 16,384 pages read zeros with the handle closed, none with it
 //! open (the test below). `VICTORY_LIBRARY_HANDLE=0`: closed, as before.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock, RwLock};
@@ -700,30 +700,58 @@ fn used() -> std::sync::MutexGuard<'static, Option<HashSet<String>>> {
 }
 
 /// Pipelines whose creation crashed the host's shader compiler in an
-/// earlier run, one key per line ([`super::make`]'s crash guard).
+/// earlier run, one line per crash: the pipeline's key, then its shaders
+/// (`stage hash` pairs) ([`super::make`]'s crash guard).
 pub(crate) const CRASHED_FILE: &str = "pipelines-crashed.txt";
 
-/// Whether making the pipeline with `key` crashed the host driver before.
+/// The crashed list: crashes per pipeline key, and the shaders of those
+/// pipelines.
+struct Crashed {
+    counts: HashMap<String, u32>,
+    shaders: HashSet<String>,
+}
+
+fn crashed() -> &'static Crashed {
+    static CRASHED: OnceLock<Crashed> = OnceLock::new();
+    CRASHED.get_or_init(|| {
+        let listed = DIR
+            .get()
+            .and_then(|d| std::fs::read_to_string(d.join(CRASHED_FILE)).ok())
+            .unwrap_or_default();
+        let mut counts: HashMap<String, u32> = HashMap::new();
+        let mut shaders = HashSet::new();
+        for line in listed.lines() {
+            let mut words = line.split_whitespace();
+            let Some(key) = words.next() else { continue };
+            *counts.entry(key.to_owned()).or_default() += 1;
+            // `stage hash` pairs: the hashes are every second word.
+            shaders.extend(words.skip(1).step_by(2).map(str::to_owned));
+        }
+        if !counts.is_empty() {
+            tracing::warn!(
+                pipelines = counts.len(),
+                shaders = shaders.len(),
+                file = CRASHED_FILE,
+                "pipelines that crashed the host driver before: their shaders are translated plainly, \
+                 and a pipeline that crashed even so is left out"
+            );
+        }
+        Crashed { counts, shaders }
+    })
+}
+
+/// Whether making the pipeline with `key` crashed the host driver twice:
+/// once as usual and once with its shaders translated plainly
+/// ([`plain_shader`]). Only then is it left out.
 pub(crate) fn crashed_before(key: &str) -> bool {
-    static CRASHED: OnceLock<HashSet<String>> = OnceLock::new();
-    CRASHED
-        .get_or_init(|| {
-            let listed = DIR
-                .get()
-                .and_then(|d| std::fs::read_to_string(d.join(CRASHED_FILE)).ok())
-                .unwrap_or_default();
-            let set: HashSet<String> =
-                listed.lines().filter_map(|l| l.split_whitespace().next()).map(str::to_owned).collect();
-            if !set.is_empty() {
-                tracing::warn!(
-                    pipelines = set.len(),
-                    file = CRASHED_FILE,
-                    "pipelines that crashed the host driver before are left out"
-                );
-            }
-            set
-        })
-        .contains(key)
+    crashed().counts.get(key).is_some_and(|&n| n >= 2)
+}
+
+/// Whether the shader with `hash` was in a pipeline that crashed the host
+/// driver: it is translated without the merging pass, which every such
+/// crash so far needed (AMD's compiler on the RX 9060 XT).
+pub(crate) fn plain_shader(hash: &str) -> bool {
+    crashed().shaders.contains(hash)
 }
 
 /// Appends `key` to the crashed list. Called from an exception handler on a

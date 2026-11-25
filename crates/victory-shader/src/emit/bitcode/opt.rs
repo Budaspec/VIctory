@@ -62,7 +62,45 @@ pub const FIRST: u32 = 32;
 /// Found on 12 of the title's compute programs (e.g. 38e7dedf37c90130),
 /// whose pipelines crashed the process when made.
 fn reusable(funcs: &[Func], key: &Key) -> bool {
-    !matches!(key, Key::Call(f, _) if funcs[*f as usize].name.starts_with("dx.op.getDimensions"))
+    if matches!(key, Key::Call(f, _) if funcs[*f as usize].name.starts_with("dx.op.getDimensions")) {
+        return false;
+    }
+    let skip = reuse_skip();
+    if skip.is_empty() {
+        return true;
+    }
+    let kind = match key {
+        Key::Bin(..) => "bin",
+        Key::Cast(..) => "cast",
+        Key::Cmp(..) => "cmp",
+        Key::Select(..) => "select",
+        Key::Extract(..) => "extract",
+        Key::Gep(..) => "gep",
+        Key::Load(..) => "load",
+        Key::Call(f, _) => {
+            let name = funcs[*f as usize].name.as_str();
+            return !skip.iter().any(|s| s == "call" || name.strip_prefix("dx.op.").is_some_and(|n| n.starts_with(s.as_str())));
+        }
+    };
+    !skip.iter().any(|s| s == kind)
+}
+
+/// `VICTORY_REUSE_SKIP` (diagnostics): kinds of [`REUSE`] merge left out,
+/// comma-separated: `join`, `bin`, `cast`, `cmp`, `select`, `extract`,
+/// `gep`, `load`, `call`, or the start of a `dx.op` name (`createHandle`,
+/// `annotateHandle`, `cbufferLoad`, ...). For telling which merge a host
+/// driver fails on. Part of the translation: the shader cache keys on it.
+pub(crate) fn reuse_skip() -> &'static [String] {
+    static SKIP: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    SKIP.get_or_init(|| {
+        std::env::var("VICTORY_REUSE_SKIP")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect()
+    })
 }
 
 /// The passes over the module.
@@ -765,7 +803,7 @@ impl Module {
             };
             read.clear();
             // Two joins of the same values from the same blocks are one.
-            if passes & REUSE != 0 && self.blocks[b].phis.len() > 1 {
+            if passes & REUSE != 0 && !reuse_skip().iter().any(|s| s == "join") && self.blocks[b].phis.len() > 1 {
                 let mut joins: HashMap<Vec<(usize, V)>, V> = HashMap::new();
                 for &p in &self.blocks[b].phis {
                     if repl[p as usize].is_some() {
