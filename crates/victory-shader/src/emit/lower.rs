@@ -5584,12 +5584,7 @@ impl<'a> Lower<'a> {
         };
         if let Some(stride) = picked {
             let zero = self.s.m.i32(0);
-            // A buffer view: a stride from 1 to `SLOT_STRIDE_CBV - 1`, that is
-            // `stride - 1 < SLOT_STRIDE_CBV - 1` unsigned (0 wraps past it).
-            let one = self.s.m.i32(1);
-            let less = self.s.m.bin(self.cur, Bin::Sub, stride, one);
-            let bound = self.s.m.i32(super::shader::SLOT_STRIDE_CBV - 1);
-            let is_buffer = self.s.m.cmp(self.cur, pred::IULT, less, bound);
+            let is_buffer = self.slot_is(stride, false);
             let at = self.begin_guarded(Some(is_buffer));
             let h = self.handle(site, src, false, (11, 0))?;
             let mut raw = Vec::new();
@@ -5612,15 +5607,7 @@ impl<'a> Lower<'a> {
                 raw.push((x, zero));
             }
             let raw = self.end_guarded(at, &raw);
-            // Only a slot the host marks as a constant buffer view is read as
-            // one. Anything else there (a texture view, a null view, a slot
-            // never written) read as a constant buffer is a descriptor of
-            // another kind taken for a buffer's: on AMD (RX 9060 XT) its bits
-            // gave a wild address and the device was removed (a page fault at
-            // 0x5b3b000 in compute fc5e66f8f873d3bb, its `u6` naming a texture
-            // slot). Those read zeros, as the buffer path gives past an end.
-            let cbv = self.s.m.i32(super::shader::SLOT_STRIDE_CBV);
-            let other = self.s.m.cmp(self.cur, pred::EQ, stride, cbv);
+            let other = self.slot_is(stride, true);
             let at = self.begin_guarded(Some(other));
             let h = self.handle(site, src, false, (13, 0x1_0000))?;
             let mut both = Vec::new();
@@ -6455,6 +6442,11 @@ impl<'a> Lower<'a> {
         let phi = self.s.m.phi(join, self.s.t.i32);
         self.s.m.set_phi(phi, incoming);
         Ok(phi)
+    }
+
+    /// See `shader::slot_is`.
+    fn slot_is(&mut self, stride: V, cbv: bool) -> V {
+        super::shader::slot_is(&mut self.s.m, self.cur, stride, cbv)
     }
 
     /// The bytes per element of the buffer view `src` names, if the program
@@ -10364,11 +10356,7 @@ impl<'a> Lower<'a> {
             && !typed
             && used.is_none()
         {
-            // A slot marked as a constant buffer view has no element size.
-            let cbv = self.s.m.i32(super::shader::SLOT_STRIDE_CBV);
-            let is_cbv = self.s.m.cmp(c, pred::EQ, stride, cbv);
-            let zero = self.s.m.i32(0);
-            let stride = self.s.m.select(c, is_cbv, zero, stride);
+            let stride = super::shader::element_stride(&mut self.s.m, c, stride);
             let at = self.s.m.bin(c, Bin::Mul, element, stride);
             off = self.s.m.bin(c, Bin::Add, at, off);
             index = None;

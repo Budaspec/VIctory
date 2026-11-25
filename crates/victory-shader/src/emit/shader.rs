@@ -27,7 +27,38 @@ pub const SLOT_STRIDES: u8 = 255;
 /// The [`SLOT_STRIDES`] entry of a slot holding a constant buffer view: the
 /// only slots a program that picks a buffer from the heap reads as constant
 /// buffers. 0 is a slot with no buffer view at all (a texture, null).
+///
+/// Before the mark, every slot without a stride was read as a constant
+/// buffer. A texture view, a null view or a slot never written, read that
+/// way, is a descriptor of another kind taken for a buffer's: on AMD (RX
+/// 9060 XT) its bits gave a wild address and the device was removed (a page
+/// fault at 0x5b3b000 in compute fc5e66f8f873d3bb, its `u6` naming a texture
+/// slot). Such slots now read zeros, as a buffer read past its end does.
 pub const SLOT_STRIDE_CBV: u32 = u32::MAX;
+
+/// Whether the [`SLOT_STRIDES`] entry `stride` (computed in `block`) is a
+/// constant buffer view's (`cbv`) or else a buffer view's: a stride from 1
+/// to `SLOT_STRIDE_CBV - 1`, that is `stride - 1 < SLOT_STRIDE_CBV - 1`
+/// unsigned (0 wraps past it).
+pub(crate) fn slot_is(m: &mut Module, block: usize, stride: V, cbv: bool) -> V {
+    use super::bitcode::{Bin, pred};
+    if cbv {
+        let mark = m.i32(SLOT_STRIDE_CBV);
+        return m.cmp(block, pred::EQ, stride, mark);
+    }
+    let one = m.i32(1);
+    let less = m.bin(block, Bin::Sub, stride, one);
+    let bound = m.i32(SLOT_STRIDE_CBV - 1);
+    m.cmp(block, pred::IULT, less, bound)
+}
+
+/// The bytes per element of a [`SLOT_STRIDES`] entry: none (0) for a slot
+/// marked as a constant buffer view.
+pub(crate) fn element_stride(m: &mut Module, block: usize, stride: V) -> V {
+    let is_cbv = slot_is(m, block, stride, true);
+    let zero = m.i32(0);
+    m.select(block, is_cbv, zero, stride)
+}
 /// Dwords of the [`SLOT_STRIDES`] buffer: heap indices are clamped to it.
 pub const SLOT_STRIDES_COUNT: u32 = 1 << 21;
 
