@@ -2,7 +2,9 @@ A fork of the DexNom community victory fork by Budaspec.
 
 ## Status
 
-On an AMD Radeon RX 9060 XT (driver 32.0.32015.7029) the game loads into the world and ran for over 30 minutes in the latest test without a crash or GPU fault. Every shader that has crashed AMD's compiler so far now compiles. The frame rate in the world is still low and uneven (about 3 to 6 fps, with some frames of 1 to 2 seconds), so it is not comfortably playable yet.
+**No crashes.** On an AMD Radeon RX 9060 XT (driver 32.0.32015.7029) the game loads into the world and ran for over 30 minutes in the latest test with no crash, no GPU fault and no restart. Every shader that has crashed AMD's compiler so far now compiles.
+
+**Current focus: frame rate and frame timing.** The world runs at about 3 to 6 fps, and some frames take 1 to 2 seconds, so it is not comfortably playable yet. The first goal is a frame time stable enough that the game is mostly playable, keeping the current stability. The end goal is 30 fps without major dips. Missing or black textures and objects are known and set aside for now.
 
 ## Progress
 
