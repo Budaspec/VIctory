@@ -1592,7 +1592,14 @@ impl HostHeap {
         {
             // SAFETY: inside the mapping; shaders read it while we write (a
             // dword, either value is one the slot had).
-            unsafe { (*data as *mut u32).add(index as usize).write_volatile(stride.unwrap_or(0)) };
+            // A constant buffer view is marked as one: only such slots are
+            // read as constant buffers (`SLOT_STRIDE_CBV`).
+            let entry = match (stride, view) {
+                (Some(stride), _) => stride,
+                (None, Some(View::Constant(..))) => victory_shader::emit::SLOT_STRIDE_CBV,
+                (None, _) => 0,
+            };
+            unsafe { (*data as *mut u32).add(index as usize).write_volatile(entry) };
         }
         let mut buffers = self.buffers.lock().unwrap_or_else(|e| e.into_inner());
         let location = view.and_then(acceleration_location);

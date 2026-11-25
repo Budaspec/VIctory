@@ -24,6 +24,10 @@ pub const ROOT_CBV_SPACE: u32 = 1;
 /// root SRV also tells the host that the buffer views of the whole heap
 /// must be ready when it runs, not only those its tables name.
 pub const SLOT_STRIDES: u8 = 255;
+/// The [`SLOT_STRIDES`] entry of a slot holding a constant buffer view: the
+/// only slots a program that picks a buffer from the heap reads as constant
+/// buffers. 0 is a slot with no buffer view at all (a texture, null).
+pub const SLOT_STRIDE_CBV: u32 = u32::MAX;
 /// Dwords of the [`SLOT_STRIDES`] buffer: heap indices are clamped to it.
 pub const SLOT_STRIDES_COUNT: u32 = 1 << 21;
 
