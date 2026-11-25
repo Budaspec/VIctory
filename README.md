@@ -6,11 +6,11 @@ A fork of the DexNom community victory fork by Budaspec.
 |---|---|
 | **Platform** | AMD Radeon RX 9060 XT 16 GB (RDNA 4), driver 32.0.32015.7029, Ryzen 5 9600X, 32 GB RAM, Windows 11 Pro |
 | **Milestone** | Playable: in the world, character control, HUD working |
-| **Story progress** | Early: in the opening; the low frame rate limits progress |
+| **Story progress** | Prologue cleared: reached Jason's first mission, "Gone Fishing", and played part of it |
 | **Rendering** | The world draws, but many textures and objects are black or missing |
 | **Performance** | About 3 to 6 fps in the world; some frames take 1 to 2 seconds |
 | **Stability** | Rarely crashes: recent test runs of 8 to 30 minutes with no crash or GPU fault |
-| **Evidence** | Video coming soon |
+| **Evidence** | [Gameplay video (YouTube)](https://youtu.be/HYebox6DnVQ) |
 
 **What works**
 - Builds from source with `Setup.cmd`, based on DexNom Runtime (Marvisak's VIctory); GPL-3.0.
