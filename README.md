@@ -2,9 +2,16 @@ A fork of the DexNom community victory fork by Budaspec.
 
 ## Status
 
-On an AMD Radeon RX 9060 XT (driver 32.0.32015.7029) the game loads into the world and runs for about 18 minutes, to frame ~11,600, without a GPU fault. Two problems remain: occasional shader-compiler crashes, which restart the game, and an unstable frame rate that makes button presses drop. It is not comfortably playable yet.
+On an AMD Radeon RX 9060 XT (driver 32.0.32015.7029) the game loads into the world and ran for over 30 minutes in the latest test without a crash or GPU fault. Every shader that has crashed AMD's compiler so far now compiles. The frame rate in the world is still low and uneven (about 3 to 6 fps, with some frames of 1 to 2 seconds), so it is not comfortably playable yet.
 
 ## Progress
+
+### 2026-11-25, compiler crashes, dropped presses, frame pacing
+
+- **Shader-compiler crash fixed.** Compute shader `f16876929fa64f9f` crashed AMD's compiler with every optimizer setting. A new diagnostic (`VICTORY_DROP_OPS`) removes chosen operations from a shader, and it showed that resource-size queries on resources picked from the descriptor heap trigger the crash. The translator now marks the heap indices those queries use as non-uniform. That computes the same result and avoids the crash. All 15 shaders that ever crashed the compiler now compile. `VICTORY_SIZE_NONUNIFORM=0` turns this off.
+- **Dropped button presses.** The game finds a press by comparing the current controller reading with the previous one. The runtime made a new reading every 8 ms whenever a stick moved, so at 3 to 6 fps a tap usually started and ended between two of the game's reads. Readings since the game's last read are now merged into one, which includes every button pressed in between. Its previous reading is the one the game saw last. A test reproduces the old failure. `VICTORY_INPUT_LATCH=0` turns this off.
+- **Frame pacing.** Every 16th frame, the pass that prepares heap buffer views rescanned all ~83,000 slots, a hitch of 0.1 s or more. The rescan is now spread over 16 frames, and the slot part of the pass dropped to about 10 ms a frame. The frame-rate line now splits the pass into slots, memory copies and textures.
+- **Result.** Test run 4 ran for over 30 minutes and passed frame 6,000 with no crash and no GPU fault.
 
 ### 2026-11-25, GPU page fault fixed
 
@@ -28,8 +35,11 @@ On an AMD Radeon RX 9060 XT (driver 32.0.32015.7029) the game loads into the wor
 
 ## Known issues
 
-- **Unstable frame rate (blocking for play).** The frame rate swings enough that many button presses do not register.
-- **Shader-compiler crashes still happen.** AMD's compiler still crashes on some shaders, most recently compute `f16876929fa64f9f` after 18 minutes. The game restarts, and the next launch translates that shader without the merging pass. A targeted fix for each pattern is preferred to that fallback.
+- **Low, uneven frame rate (blocking for play).** The world runs at about 3 to 6 fps. Measured causes, largest first:
+  - Uploads of textures that shaders pick by index run on the frame's own thread, with a budget of up to 250 ms a frame (1.5 s during the first minute).
+  - Change detection on game memory checks about 11 GB a frame, nearly all of it unchanged.
+  - Copying GPU results back to game memory takes 70 to 130 ms a frame.
+  - Some frames take 1 to 2 seconds while the game's own threads have not submitted any work.
 - **Ordered-pixel shaders are not drawn.** 10 pixel shaders use the console's ordered pixel shading (POPS), which keeps overlapping transparent pixels in draw order. The translator does not support it yet, so those draws are dropped. The planned fix maps them to D3D12 rasterizer-ordered views.
 - **Full shader check not finished.** The offline check that builds pipelines for all ~22,000 shaders was stopped before it finished.
 - **Inherited issues.** These come from the upstream runtime: some objects render black, frame times can be long in some scenes, and ray tracing is experimental.
