@@ -338,6 +338,66 @@ struct Slot {
     connected: bool,
     sequence: u64,
     history: VecDeque<Ref>,
+    /// The sequence of the reading `GetCurrentReading` last handed out
+    /// (0: none yet), for [`Slot::latch`].
+    handed: u64,
+}
+
+impl Slot {
+    /// Gamepads, before the newest reading is handed to the title: the
+    /// readings since the one it was handed last become one, whose buttons
+    /// are every button held in any of them. The title reads its pads once
+    /// a frame and finds presses by the previous reading; at 3 to 6 frames a
+    /// second (the world, RX 9060 XT) a tap began and ended between two of
+    /// its reads, and the previous reading of the newest was the one polled
+    /// 8 ms before (the sticks change at every poll), so most presses were
+    /// never seen. Now the previous reading is the one it saw, and a tap is
+    /// held for one frame. `VICTORY_INPUT_LATCH=0` hands out the newest
+    /// poll, as before.
+    fn latch(&mut self) {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if !*ON.get_or_init(|| std::env::var_os("VICTORY_INPUT_LATCH").is_none_or(|v| v != "0")) {
+            return;
+        }
+        let Some(newest) = self.history.back() else { return };
+        if self.handed == 0 || newest.sequence == self.handed {
+            self.handed = newest.sequence;
+            return;
+        }
+        // The readings after the one handed out (all of them if it is gone).
+        let first = self
+            .history
+            .iter()
+            .position(|r| r.sequence == self.handed)
+            .map_or(0, |i| i + 1);
+        let between = self.history.len() - first;
+        let Value::Pad(mut pad) = newest.value else {
+            self.handed = newest.sequence;
+            return;
+        };
+        if between > 1 {
+            for r in self.history.iter().skip(first) {
+                if let Value::Pad(p) = r.value {
+                    pad.buttons |= p.buttons;
+                }
+            }
+            let (device, sequence, timestamp) = (newest.device, newest.sequence, newest.timestamp);
+            self.history.truncate(first);
+            self.history.push_back(Ref::new(Reading {
+                vtable: &READING,
+                refs: AtomicU32::new(1),
+                device,
+                sequence,
+                timestamp,
+                value: Value::Pad(pad),
+            }));
+        }
+        self.handed = sequence_of(&self.history);
+    }
+}
+
+fn sequence_of(history: &VecDeque<Ref>) -> u64 {
+    history.back().map_or(0, |r| r.sequence)
 }
 
 struct State {
@@ -654,7 +714,17 @@ extern "system" fn current_reading(
     out: Out,
 ) -> HRESULT {
     let hub = hub(this);
-    let state = hub.state();
+    let mut state = hub.state();
+    if kind & GAMEPAD_KIND != 0 {
+        let pads: Vec<usize> = match hub.index(device) {
+            Some(i) => vec![i],
+            None => (0..DEVICES).collect(),
+        };
+        for i in pads.into_iter().filter(|&i| i != KEYBOARD) {
+            state.slots[i].latch();
+        }
+    }
+    let state = state;
     let newest = |i: usize| {
         state.slots[i]
             .history
@@ -1539,6 +1609,38 @@ mod tests {
             Some(Provenance::Hle)
         );
         assert_eq!(r.classify("GameInput.dll", &ImportSymbol::Ordinal(2)), None);
+    }
+
+    /// A tap that began and ended between two of the title's reads, while
+    /// a stick moved at every poll: the next read holds the button, its
+    /// previous reading is the one the title read, and the read after has
+    /// it released.
+    #[test]
+    fn a_tap_between_two_reads_is_seen_once() {
+        let (hub, host) = fake();
+        host.lock().unwrap().pads[0] = Some(PadState::default());
+        hub.poll();
+        let seen = current(hub, GAMEPAD_KIND, 0).unwrap();
+        assert_eq!(pad(seen).buttons, 0);
+        for (i, buttons) in [0, A, A, 0, 0].into_iter().enumerate() {
+            let mut host = host.lock().unwrap();
+            let p = host.pads[0].as_mut().unwrap();
+            p.buttons = buttons;
+            p.left_x = 0.1 * (i + 1) as f32;
+            drop(host);
+            hub.poll();
+        }
+        let next = current(hub, GAMEPAD_KIND, 0).unwrap();
+        assert_eq!(pad(next).buttons, A, "the tap is held for one read");
+        assert_eq!(pad(next).left_x, 0.5, "the sticks are the newest");
+        assert_eq!(walk(hub, 0x30, next), Ok(seen), "its previous is the reading the title saw");
+        host.lock().unwrap().pads[0].as_mut().unwrap().left_x = 0.6;
+        hub.poll();
+        let after = current(hub, GAMEPAD_KIND, 0).unwrap();
+        assert_eq!(pad(after).buttons, 0);
+        for r in [seen, next, after] {
+            release(r);
+        }
     }
 
     #[test]
