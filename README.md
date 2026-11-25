@@ -8,6 +8,18 @@ A fork of the DexNom community victory fork by Budaspec.
 
 ## Progress
 
+### 2026-11-25, frame timing work and a regression fix
+
+- **Regression found and fixed.** The fix for the compute-shader compiler crashes was also applied to pixel shaders, which made AMD's compiler crash elsewhere (`amdxc64.dll+0xe8d9e5`) on 3 mesh/pixel pipelines. That caused run 4's 6 restarts. The fix now applies only to compute shaders. All 15 compute shaders and the 6 mesh/pixel shaders compile, and test run 6 had **zero crashes** with all of them in.
+- **Frame-time spikes reduced.** Texture uploads for shaders that pick textures by index are capped at 24 ms a frame (100 ms in the first minute), down from 250 ms (1.5 s). Crash breadcrumbs, which cost about 156 ms of CPU a frame, are now off in test runs. Run 5 compared with run 4: median frame 230 ms vs 256 ms, worst frame 2 s vs 23 s. Frames of 1 to 2 seconds still happen in about 12% of seconds.
+- **Where the slow frames go.** In the 1 to 2 second frames the game uses little CPU and goes about a second without submitting work, so its threads are waiting. A sampling profile (every thread's stack once a second for 6 minutes, 20,216 game-thread samples) shows that when the game's threads are in runtime code, they mostly wait on runtime locks. Ranked by samples:
+  1. `HostHeap::mirror`: the descriptor heap mirror lock, taken when draws translate descriptor slots (99).
+  2. `Host::submit_part`: the submission lock (82).
+  3. `texture::upload_from`: the texture upload lock (78).
+  4. `draw::State::bind` (48).
+
+  Next step: shorten or split these locks so game threads stop queuing behind each other.
+
 ### 2026-11-25, compiler crashes, dropped presses, frame pacing
 
 - **Shader-compiler crash fixed.** Compute shader `f16876929fa64f9f` crashed AMD's compiler with every optimizer setting. A new diagnostic (`VICTORY_DROP_OPS`) removes chosen operations from a shader, and it showed that resource-size queries on resources picked from the descriptor heap trigger the crash. The translator now marks the heap indices those queries use as non-uniform. That computes the same result and avoids the crash. All 15 shaders that ever crashed the compiler now compile. `VICTORY_SIZE_NONUNIFORM=0` turns this off.
